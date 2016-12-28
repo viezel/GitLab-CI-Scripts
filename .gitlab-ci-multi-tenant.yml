@@ -1,0 +1,99 @@
+#
+# Gitlab CI configuration for multi tenant with multi database setup
+# This project is based on the Laravel Framework, so it has some php artisan command. You could use any framework or language you want.
+# 
+
+stages:
+  - test
+  - deploy
+
+cache:
+  # cache per-job and per-branch
+  key: "$CI_BUILD_NAME/$CI_BUILD_REF_NAME"
+  paths:
+    - vendor/
+
+before_script:
+  # Pull in MySQL client for db setup
+  - apt-get update -yqq
+  - apt-get install -y mysql-client libmysqlclient-dev --no-install-recommends
+
+  # PHP Extensions
+  - docker-php-ext-enable zip mbstring pdo_mysql soap mysqli gd
+
+  # Install packages through composer
+  - composer self-update
+  - composer install --no-progress --no-interaction
+
+  # ENV configuration
+  - sed -i.bak 's/DB_HOST=localhost/DB_HOST=mysql/g' .env.testing
+  - sed -i.bak 's/APP_HOST=localhost/APP_HOST=%/g' .env.testing
+  - sed -i.bak 's/TEAM_DB_HOST=localhost/TEAM_DB_HOST=mysql/g' .env.testing
+  - sed -i.bak 's/APP_DEBUG=false/APP_DEBUG=true/g' .env.testing
+  - sed -i.bak 's/CACHE_DRIVER=array/CACHE_DRIVER=redis/g' .env.testing
+  - sed -i.bak 's/REDIS_HOST=127.0.0.1/REDIS_HOST=redis/g' .env.testing
+  - cp .env.testing .env
+  - sed -i.bak -e "s/mysql:host=localhost\.*/mysql:host=mysql/" codeception.yml
+
+  # Setup and prepare database (optional)
+  - php artisan key:generate
+  - php artisan config:clear
+  - php artisan migrate:refresh
+  - php artisan db:seed --env="testing"
+
+  # make sure our testing tenant url is possible to reach for API coverage
+  - echo "192.168.99.100 testingenv.myapp.dev" >> /etc/hosts
+
+  # Multi Tenant MySQL setup - create extra database and user with all privileges
+  - echo "SET GLOBAL sql_mode='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION';" | mysql --user=root --password="$MYSQL_ROOT_PASSWORD" --host=mysql
+  - echo "CREATE DATABASE IF NOT EXISTS myapp_testing DEFAULT CHARACTER SET utf8 COLLATE utf8_unicode_ci;" | mysql --user=root --password="$MYSQL_ROOT_PASSWORD" --host=mysql
+  - echo "CREATE DATABASE IF NOT EXISTS myapp_testing_team DEFAULT CHARACTER SET utf8 COLLATE utf8_unicode_ci;" | mysql --user=root --password="$MYSQL_ROOT_PASSWORD" --host=mysql
+  - echo "GRANT ALL PRIVILEGES ON *.* TO '${MYSQL_USER}'@'%' WITH GRANT OPTION;FLUSH PRIVILEGES;" | mysql --user=root --password="$MYSQL_ROOT_PASSWORD" --host=mysql
+
+variables:
+  WITH_XDEBUG: "1"
+  MYSQL_ROOT_PASSWORD: mysql
+  MYSQL_DATABASE: myapp_testing
+  MYSQL_USER: homestead
+  MYSQL_PASSWORD: secret
+  COMPOSER_HOME: /cache/composer
+  REDIS_PORT: "6379"
+
+services:
+  - mysql:5.7
+  - redis
+
+# only run in feature/hotfix/bugfix branches
+test:php7-mysql5.7:
+  image: tetraweb/php:7.0
+  stage: test
+  only:
+    - /^(feature|hotfix|bugfix)\/.*$/
+  script:
+    - vendor/bin/codecept run
+
+# Full test including coverage
+test:php7-mysql5.7-coverage:
+  image: tetraweb/php:7.0
+  stage: test
+  only:
+    - develop
+    - master
+  script:
+    - vendor/bin/codecept run --coverage-text --no-colors
+
+
+## Deployment - Staging
+deploy_staging:
+  image: ubuntu:16.04
+  stage: deploy
+  when: manual
+  script:
+    - apt-get update -yqq
+    - apt-get install -y curl
+    - curl --request GET https://trigger.my.app/deploy-script
+  environment:
+    name: staging
+    url: https://demo.myapp.com
+  only:
+  - develop
