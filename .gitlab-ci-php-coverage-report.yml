@@ -1,0 +1,49 @@
+#
+# Gitlab CI configuration with PHP Code Coverage HTML report
+# We merge multiple suits coverage reports and save those for download 
+#
+
+stages:
+  - test
+
+cache:
+  # cache per-job and per-branch
+  key: "$CI_BUILD_NAME/$CI_BUILD_REF_NAME"
+  paths:
+    - vendor/
+
+before_script:
+  - apt-get update -yqq
+
+  # PHP Extensions
+  - docker-php-ext-enable zip mbstring pdo_mysql soap mysqli gd
+
+  # Install packages through composer
+  - composer self-update
+  - composer install --no-progress --no-interaction
+
+  # run your app install commands here
+
+variables:
+  WITH_XDEBUG: "1"
+  MYSQL_ROOT_PASSWORD: mysql
+  MYSQL_DATABASE: myapp_testing
+  MYSQL_USER: homestead
+  MYSQL_PASSWORD: secret
+  COMPOSER_HOME: /cache/composer
+
+test:php7:full-report:
+  image: tetraweb/php:7.0
+  stage: test
+  artifacts:
+    paths:
+      - tests/_output/coverage
+    expire_in: 1 month
+  script:
+    - do_run() { vendor/bin/codecept run --coverage=$1.cov $1; };
+    - vendor/bin/codecept run acceptance
+    - do_run api
+    - do_run functional
+    - do_run unit
+    - vendor/bin/phpcov merge tests/_output --text=Coverage
+    - vendor/bin/phpcov merge tests/_output --html=tests/_output/coverage
