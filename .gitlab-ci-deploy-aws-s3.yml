@@ -1,0 +1,36 @@
+#
+# Gitlab CI configuration for deploying your app to AWS S3 bucket. 
+# Next you will need to setup Amazon CodeDeploy to listen to changes in your bucket and deploy the zip file.
+# 
+# You will have to setup 4 variables in your Gitlab setup for the AWS SDK to pick you your AMI credentials
+# AWS_ACCESS_KEY_ID, AWS_BUCKET, AWS_REGION, AWS_SECRET_ACCESS_KEY
+#
+
+stages:
+  - test
+  - deploy
+
+test:php7:
+  image: tetraweb/php:7.0
+  stage: test
+  script:
+    - echo "run your tests here"
+
+## Deployment - Production
+deploy_production:
+  image: ubuntu:16.04
+  stage: deploy
+  when: manual
+  script:
+    - apt-get update -yqq
+    - apt-get install -y zip
+    - apt-get --quiet install --yes python-pip
+    - pip install -U pip
+    - pip install awscli
+    - zip myapp.zip -r .
+    - aws s3 cp ./myapp.zip s3://$AWS_BUCKET
+  environment:
+    name: production
+    url: https://myapp.com
+  only:
+  - master
