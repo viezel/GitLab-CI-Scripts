@@ -1,0 +1,61 @@
+#
+# Gitlab CI configuration for the Laravel Framework. 
+# 
+
+stages:
+  - test
+
+cache:
+  # cache per-job and per-branch
+  key: "$CI_BUILD_NAME/$CI_BUILD_REF_NAME"
+  paths:
+    - vendor/
+
+before_script:
+  # Pull in MySQL client for db setup
+  - apt-get update -yqq
+
+  # PHP Extensions
+  - docker-php-ext-enable zip mbstring pdo_mysql soap mysqli gd
+
+  # Install packages through composer
+  - composer self-update
+  - composer install --no-progress --no-interaction
+
+  # ENV configuration
+  - sed -i.bak 's/DB_HOST=localhost/DB_HOST=mysql/g' .env.testing
+  - cp .env.testing .env
+
+  # Laravel: Generate an application key. Re-cache. migrate 
+  - php artisan key:generate
+  - php artisan config:clear
+  - php artisan migrate:refresh
+  - php artisan db:seed --env="testing"
+
+variables:
+  WITH_XDEBUG: "1"
+  MYSQL_ROOT_PASSWORD: mysql
+  MYSQL_DATABASE: myapp_testing
+  MYSQL_USER: homestead
+  MYSQL_PASSWORD: secret
+  COMPOSER_HOME: /cache/composer
+
+services:
+  - mysql:5.7
+
+test:php7-mysql5.7:
+  image: tetraweb/php:7.0
+  stage: test
+  script:
+    # Mess Detection
+    #- vendor/bin/phpmd app/ text phpmd.xml
+
+    # Code Beautifier and Fixer
+    #- vendor/bin/phpcbf --standard=psr2 app/
+
+    # Code Sniffer
+    #- vendor/bin/phpcs --standard=psr2 app
+
+    # PHPUnit
+    - echo "Running PHPUnit Tests"
+    - vendor/bin/phpunit --colors --debug
