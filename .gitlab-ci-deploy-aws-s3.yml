@@ -18,15 +18,10 @@ test:php7:
 
 ## Deployment - Production
 deploy_production:
-  image: ubuntu:16.04
+  image: napp/docker-aws-cli
   stage: deploy
   when: manual
   script:
-    - apt-get update -yqq
-    - apt-get install -y zip
-    - apt-get --quiet install --yes python-pip
-    - pip install -U pip
-    - pip install awscli
     - zip myapp.zip -r .
     - aws s3 cp ./myapp.zip s3://$AWS_BUCKET
   environment:
